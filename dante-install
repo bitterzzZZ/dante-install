@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+# Title: dante-install
+# Description: Install a SOCKS proxy server on Ubuntu/Debian based system
+# Author: William Chanrico
+# Date: 28-February-2017
+
+echo " _____________________ 	"
+echo "/ hello, who's there? \\	"
+echo "\\ william said hi...  /	"
+echo " ---------------------	"
+echo "       \\   ,__,			"
+echo "        \\  (..)____		"
+echo "           (__)    )\		"
+echo "              ||--|| *	"
+echo "Install a SOCKS proxy server on Ubuntu/Debian based system"
+
+if [[ "$EUID" -ne 0 ]]; then
+    echo "Sorry, you need to run this as root"
+    exit 1
+fi
+
+read -p "Internal interface: " inif
+read -p "External interface: " exif
+read -p "Socks port: " sport
+
+echo -e '\nInstalling required package'
+
+sudo apt-get update -y >/dev/null 2>&1
+sudo apt-get install wget -y >/dev/null 2>&1
+sudo apt-get install curl -y >/dev/null 2>&1
+sudo apt-get install build-essential -y >/dev/null 2>&1
+
+echo 'Getting dante-1.4.2.tar.gz'
+
+sudo wget https://www.inet.no/dante/files/dante-1.4.2.tar.gz >/dev/null 2>&1
+sudo tar -xzf dante-1.4.2.tar.gz >/dev/null 2>&1
+cd dante-1.4.2/
+
+echo 'Installing dante-1.4.2'
+
+sudo ./configure >/dev/null 2>&1
+sudo make >/dev/null 2>&1
+sudo make install >/dev/null 2>&1
+
+echo 'Setting up some configuration'
+
+sudo bash -c "cat <<EOF > /etc/danted.conf
+logoutput: syslog
+internal: $inif port = $sport
+external: $exif
+external.rotation: same-same
+method: username none
+user.privileged: proxy
+user.notprivileged: nobody
+client pass {
+        from: 0.0.0.0/0 port 1-65535 to: 0.0.0.0/0
+}
+client block {
+        from: 0.0.0.0/0 to: 0.0.0.0/0
+}
+pass {
+        from: 0.0.0.0/0 to: 0.0.0.0/0
+        protocol: tcp udp
+}
+block {
+        from: 0.0.0.0/0 to: 0.0.0.0/0
+}
+EOF"
+sudo bash -c 'cat <<EOF > /etc/sockd.sh
+#!/usr/bin/env bash
+
+sudo /usr/local/sbin/sockd -D -N 2 -f /etc/danted.conf
+EOF'
+sudo chmod +x /etc/sockd.sh
+sudo crontab -l | { cat; echo '@reboot /etc/sockd.sh'; } | crontab -
+
+echo 'Starting dante daemon'
+
+sudo /usr/local/sbin/sockd -D -N 2 -f /etc/danted.conf
+
+# tail /var/log/syslog
+# >/dev/null 2>&1
+
+echo -e 'Done\n'
